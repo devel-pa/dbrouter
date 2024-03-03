@@ -12,6 +12,7 @@
   "devDependencies": {
     "@repo/eslint-config": "*",
     "@repo/typescript-config": "*",
+    "drizzle-kit": "^0.20.14",
     "prettier": "^3.1.1",
     "turbo": "latest"
   },
@@ -22,5 +23,11 @@
   "workspaces": [
     "apps/*",
     "packages/*"
-  ]
+  ],
+  "dependencies": {
+    "@types/pg": "^8.11.2",
+    "drizzle-orm": "^0.29.4",
+    "pg": "^8.11.3",
+    "postgres": "^3.4.3"
+  }
 }
