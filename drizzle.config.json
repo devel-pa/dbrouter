@@ -1,0 +1,10 @@
+{
+  "out": "./migrations-folder",
+  "schema": "./src/db",
+  "breakpoints": false,
+  "driver": "libsql",
+
+  "dbCredentials": {
+    "url": "http://127.0.0.1:8080"
+  }
+}

@@ -11,6 +11,28 @@ import { Client } from "pg";
 import { NodePgDatabase, drizzle } from "drizzle-orm/node-postgres";
 import { eq } from "drizzle-orm";
 
+// utils
+const prepareRecords = (
+  rows: any[],
+  mainKey: string,
+  joinedKey: string,
+  obj: any = {}
+) => {
+  return rows.reduce<Record<number, any>>((acc, row) => {
+    const main = row[mainKey];
+    const joined = row[joinedKey];
+
+    if (!acc[main.id]) {
+      acc[main.id] = { main, [joinedKey]: [] };
+    }
+    if (joined) {
+      acc[main.id][joinedKey].push(joined);
+    }
+    return acc;
+  }, obj);
+};
+
+// connect to db
 const client = new Client({
   host: "127.0.0.1",
   port: 5432,
@@ -91,14 +113,10 @@ abstract class RepositoryBase {
   }
 
   protected select(schema: string, fields: any) {
-    const db = RepositoryBase.db();
-    let query;
-    if (fields) {
-      query = db.select(fields).from(this.getModel(schema)).$dynamic();
-    } else {
-      query = db.select().from(this.getModel(schema)).$dynamic();
-    }
-    return query;
+    return RepositoryBase.db()
+      .select(fields)
+      .from(this.getModel(schema))
+      .$dynamic();
   }
 
   protected insert(schema: string, values: any | any[]) {
@@ -123,13 +141,18 @@ abstract class RepositoryBase {
       .$dynamic();
   }
 
-  abstract add(schema: string, values: any | any[]): Promise<any>;
+  abstract add(
+    schema: string,
+    values: any | any[],
+    onConflict?: any
+  ): Promise<any>;
   abstract get(schema: string, fields?: any): Promise<any>;
   abstract set(schema: string, values: any, where: any): Promise<any>;
-  abstract remove(schema: string, where: any): Promise<any>;
+  abstract removeWhere(schema: string, where: any): Promise<any>;
 }
 
 class Repository extends RepositoryBase {
+  // select
   async get(schema: string, fields?: any) {
     return await this.select(schema, fields).execute();
   }
@@ -138,54 +161,102 @@ class Repository extends RepositoryBase {
     return await this.select(schema, fields).where(where);
   }
 
-  async getById(schema: string, fields: any, id: number | string) {
-    return await this.select(schema, fields).where(
-      eq(this.getModel(schema).id, id)
-    );
+  async getById(
+    schema: string,
+    fields: any,
+    id: number | string,
+    dynamic?: boolean
+  ) {
+    const query = this.select(schema, fields)
+      .where(eq(this.getModel(schema).id, id))
+      .$dynamic();
+
+    return dynamic ? query : await query.execute();
   }
 
-  async getWith() {}
-  async getByIdWith() {}
-
-  async find() {}
-  async findAndCount() {}
-
-  async download() {}
-
-  async add(schema: string, values: any | any[]) {
-    return await this.insert(schema, values).returning();
+  async getWith(
+    schema: string,
+    leftJoin: any | any[],
+    fields: any,
+    where: any
+  ) {
+    const query = this.select(schema, fields);
+    if (Array.isArray(leftJoin)) {
+      leftJoin.forEach((join) => {
+        query.leftJoin(join.repository.getModel(schema), join.on).$dynamic();
+      });
+    } else {
+      query
+        .leftJoin(leftJoin.repository.getModel(schema), leftJoin.on)
+        .$dynamic();
+    }
+    if (where) {
+      query.where(where).$dynamic();
+    }
+    const results = await query.execute();
+    let final = {};
+    results.forEach((r) => {
+      final = prepareRecords(results, r.main, r.joined, final);
+    });
+    return final;
   }
-  async addMany() {}
 
+  async getByIdWith(
+    schema: string,
+    id: string | number,
+    leftJoin: any | any[],
+    fields: any
+  ) {
+    return await this.getWith(schema, leftJoin, fields, {
+      id,
+    });
+  }
+  //   async getAndCount() {}
+
+  // insert
+  async add(schema: string, values: any | any[], onConflict: any) {
+    let query = this.insert(schema, values);
+
+    if (onConflict) {
+      query.onConflictDoUpdate(onConflict).$dynamic();
+    }
+
+    return await query.returning();
+  }
+
+  // update
   async set(schema: string, values: any, where: any) {
     return await this.update(schema, values, where).returning();
   }
-  async setBy(schema: string, values: any, id: string | number) {
+  async setById(schema: string, values: any, id: string | number) {
     return await this.update(schema, values, {
       id,
     }).returning();
   }
 
-  async archive() {}
-  async archiveBy() {}
-  async archiveMany() {}
-
-  async unarchive() {}
-  async unarchiveBy() {}
-  async unarchiveMany() {}
-
-  async remove(schema: string, where: any) {
+  // delete
+  async removeWhere(schema: string, where: any) {
     return await this.delete(schema, where).returning();
   }
+
   async removeById(schema: string, id: string | number) {
     return await this.delete(schema, {
       id,
     }).returning();
   }
-  async removeMany() {}
 
-  async count() {}
-  async stats() {}
+  // others
+  //   async archive() {}
+  //   async archiveBy() {}
+  //   async archiveMany() {}
+
+  //   async unarchive() {}
+  //   async unarchiveBy() {}
+  //   async unarchiveMany() {}
+
+  //   async download() {}
+  //   async count() {}
+  //   async stats() {}
 }
 
 const userRepo = new Repository("users", usersSchema, () => db);
